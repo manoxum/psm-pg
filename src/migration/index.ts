@@ -8,7 +8,7 @@ export function migrate(opts:MigrationOptions ):Promise<PSMMigrationResult>{
         const response:PSMMigrationResult = {
             messages: []
         }
-        const client = new Client( opts.url);
+        const client = new Client( opts.url );
         client.connect( err => {
             if( err ) {
                 response.messages?.push( `Connection failed: ${err.message}` );

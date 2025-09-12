@@ -7,6 +7,8 @@ export function sql( opts: SQLOptions, response: ParserResult ) {
     let parsed  = Object.values( response.parsed );
     const commands:string[] = [];
 
+
+
     commands.push( `/*
       @PSM - Prisma SAFE MIGRATE
       @author zootakuxy
@@ -42,13 +44,16 @@ export function sql( opts: SQLOptions, response: ParserResult ) {
     //Create constraints
     parsed.filter( value => !!value.primary.create.length ).forEach( value => {
         if( ["migrate", "check" ].includes(opts.mode)) commands.push( ...value.primary.create );
-    })
+    });
     parsed.filter( value => !!value.unique.create.length ).forEach( value => {
         if( ["migrate", "check" ].includes(opts.mode)) commands.push( ...value.unique.create );
-    })
+    });
     parsed.filter( value => !!value.foreign.create.length ).forEach( value => {
         if( ["migrate", "check" ].includes(opts.mode)) commands.push( ...value.foreign.create );
     });
+
+    //Schemas
+    if( opts.mode === "migrate" ) commands.push( ...response.core.schema );
 
     //Drops
     parsed.filter( value => !!value.foreign.drop.length ).forEach( value => {

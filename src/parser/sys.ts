@@ -1,5 +1,5 @@
 import {PostgresParserOptions} from "./def";
-import {oid, val} from "../utils/escape";
+import {oid, lit} from "../utils/escape";
 import {noTab} from "../utils/tabs";
 
 
@@ -24,7 +24,7 @@ export function prepareCore( opts:PostgresParserOptions ){
 }
 export function createMigration( opts:PostgresParserOptions ){
     const sys = oid( opts.sys );
-    const migration = val( opts.migration );
+    const migration = lit( opts.migration );
     const tab = "         ";
     return noTab( [
         `insert into ${sys}.migration ( sid ) values ( ${migration} );`,
@@ -45,7 +45,7 @@ export function createRevision(opts:PostgresParserOptions, operation:OperationOp
     const columns = keys.map( value => oid( value )).join(", ");
     const values = keys.map( value => {
         if( !operation[value] ) return `null`
-        return val( operation[value] )
+        return lit( operation[value] )
     }).join(", ");
 
     return noTab([

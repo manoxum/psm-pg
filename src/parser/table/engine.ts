@@ -1,5 +1,5 @@
 import {FieldOption} from "@prisma-psm/core";
-import {val} from "../../utils/escape";
+import {lit} from "../../utils/escape";
 
 interface DefaultsOptions {
     name:string,
@@ -93,12 +93,12 @@ export function parseType ( opts:FieldOption ){
 export function parseDefault ( opts:FieldOption, typed:string ){
     let defaults = "";
     if( opts.hasDefaultValue && !!opts.default && Array.isArray( opts.default)) {
-        defaults = opts.default.map( value => val( value ) ).join(", ");
+        defaults = opts.default.map( value => lit( value ) ).join(", ");
         defaults = ` array[ ${defaults} ]`;
     } else if( opts.hasDefaultValue && !!opts.default && typeof opts.default === "object" && !Array.isArray( opts.default)) {
         defaults = PRISMA_DEFAULTS[ opts.default.name ]( opts.default );
     } else if( opts.hasDefaultValue && !!opts.default ) {
-        defaults = val( opts.default+"" );
+        defaults = lit( opts.default+"" );
     }
     if( !defaults?.length ) return "";
     return `${defaults}::${typed}`;

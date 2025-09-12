@@ -6,12 +6,14 @@ import {reverseDependencies} from "./dependencies";
 import {modelParser} from "./modelParser";
 import {createFunctionRestoreSerial} from "./backup/engine";
 import {ParseModelResult, PostgresParserOptions} from "./def";
+import {schema} from "./schama";
 
 
 export interface ParserResult {
     options:PostgresParserOptions
     models: string[],
     core: {
+        schema:string[]
         structure:string[]
         functions:string[]
         migration:string[]
@@ -29,6 +31,7 @@ export function parser( opts:PostgresParserOptions){
         parsed:{},
         models:[],
         core: {
+            schema: schema( opts ),
             structure: prepareCore(opts),
             functions: createFunctionRestoreSerial(opts),
             migration: createMigration(opts),
@@ -46,6 +49,7 @@ export function parser( opts:PostgresParserOptions){
         if( model.psm?.view ) return;
         model.indexes = opts.indexes.filter( value => value.model === model.model );
 
+
         const modelDDL = modelParser( model, opts );
         const parsed:ParseModelResult = {
             model: model,
@@ -56,16 +60,19 @@ export function parser( opts:PostgresParserOptions){
             unique:{ create:[], drop:[] },
             indexes:{ create:[], drop:[] },
             dependencies:[],
-            dependents:[]
+            dependents:[],
         }
 
         let backup = true;
         if( model.psm?.backup?.skip ) backup = false;
 
+
         if( backup ){
+
             parsed.backup.restore = modelDDL.restore_backup();
             parsed.backup.restore_serial.push( ...modelDDL.restore_serial());
         }
+
 
         parsed.table.create.push( ...modelDDL.create_table());
         parsed.primary.create.push( ...modelDDL.create_primary_keys())
@@ -85,6 +92,9 @@ export function parser( opts:PostgresParserOptions){
         response.parsed[model.name] = parsed;
         response.models.push( model.name)
     });
-    reverseDependencies( Object.values( response.parsed ))
+
+    reverseDependencies( Object.values( response.parsed ));
+
+
     return response;
 }

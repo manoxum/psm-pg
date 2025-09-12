@@ -1,5 +1,5 @@
 import {FieldOption, ModelOptions} from "@prisma-psm/core";
-import {oid, val} from "../../utils/escape";
+import {oid, lit, VARCHAR} from "../../utils/escape";
 import { noTab } from "../../utils/tabs";
 import { PostgresParserOptions } from "../def";
 import {notice} from "../notice";
@@ -58,8 +58,8 @@ export function restoreBackupSQL(opts:RestoreOptions ): {
     const schema =  oid(opts.model.schema);
     const source =  oid(opts.source);
     const shadow =  oid(opts.parser.shadow);
-    const table =   oid(opts.model.name);
-    const temp =    oid(opts.model.temp);
+    const table  =  oid(opts.model.name);
+    const temp   =  oid(opts.model.temp);
 
     if( opts.model.psm?.backup?.skip ) return null as any;
 
@@ -69,18 +69,24 @@ export function restoreBackupSQL(opts:RestoreOptions ): {
             ;
     }
 
+
     const columns = opts.model.fields.filter( filter  )
         .map( value => ` ${oid(value.name)}` )
         .join(", ")
     ;
 
+    const DEFAULT_WHEN = `true`;
     const DEFAULT_QUERY = `select * from ${schema}.${source}`;
+    const DEFAULT_SOURCE_CHECKER = `select 1 from pg_catalog.pg_tables t where t.tablename = ${lit(opts.model.name)} and t.schemaname = ${lit(opts.model.schema)}`;
     const DEFAULT_RESOLVER = opts.model.fields.filter( filter )
         .map( value => {
             return  ` ${oid(value.dbName||value.name)}`;
         })
         .join(", ")
     ;
+
+    let source_exists = DEFAULT_SOURCE_CHECKER;
+    let when = DEFAULT_WHEN;
 
     const revision_resolver = opts.model.fields.filter( filter )
         .map( field => {
@@ -94,9 +100,15 @@ export function restoreBackupSQL(opts:RestoreOptions ): {
 
     let revision_query = DEFAULT_QUERY;
     const expression = opts.model.psm?.backup?.rev?.expression;
+    const exists = opts.model.psm?.backup?.rev?.exists;
+
+    if( !!exists?.length ){
+        source_exists = exists;
+    }
+
     if( opts.model.psm?.backup?.rev?.from === "query"
         && !!expression
-    ) revision_query = expression
+    ) revision_query = expression;
 
     else if( opts.model.psm?.backup?.rev?.from === "query:linked"
         && !!expression
@@ -111,7 +123,7 @@ export function restoreBackupSQL(opts:RestoreOptions ): {
     const sys = oid( opts.parser.sys );
     let revision= "null";
     const relation = `${schema}.${table}`;
-    if( opts.model.psm?.backup?.rev?.version )  revision = val( opts.model.psm?.backup?.rev.version );
+    if( opts.model.psm?.backup?.rev?.version )  revision = lit( opts.model.psm?.backup?.rev.version );
 
     let always_query = DEFAULT_QUERY;
     let always_resolver = DEFAULT_RESOLVER;
@@ -121,12 +133,22 @@ export function restoreBackupSQL(opts:RestoreOptions ): {
         revision = `always-${opts.parser.migration}`;
     }
 
-    const next =  `
+    const next =`
       do $$
         declare
           _revision character varying := ${revision}::character varying;
-          _relation character varying := ${val(relation)}::character varying;
+          _relation character varying := ${lit(relation)}::character varying;
+          ___whenX1025475 boolean;
         begin
+          if not exists( ${source_exists} ) then
+            return;
+          end if;
+          
+          ___whenX1025475 := (${when});
+          if not coalesce( ___whenX1025475, true ) then
+            return;
+          end if;
+          
           if _revision is not null and not exists(
             select 1
               from ${sys}.revision r
@@ -185,16 +207,14 @@ export interface RestoreSerialOptions extends RestoreOptions {
     seq?:string
 }
 export function restoreSerialSQL( opts:RestoreSerialOptions) {
-    let seq = "null";
-    if( !!opts.seq ) seq = val( opts.seq );
     const args = [
-        ` schema := ${val(opts.model.schema)}::character varying`,
-        ` source := ${val(opts.source)}::character varying`,
-        ` shadow := ${val(opts.parser.shadow)}::character varying`,
-        ` temp := ${val(opts.model.temp)}::character varying`,
-        ` "from" := ${val(opts.from)}::character varying`,
-        ` "to" := ${val(opts.to)}::character varying`,
-        ` "seq" := ${seq}::character varying`,
+        ` schema := ${lit(opts.model.schema, VARCHAR)}`,
+        ` source := ${lit(opts.source, VARCHAR)}`,
+        ` shadow := ${lit(opts.parser.shadow, VARCHAR)}`,
+        ` temp := ${lit(opts.model.temp, VARCHAR)}`,
+        ` "from" := ${lit(opts.from, VARCHAR)}`,
+        ` "to" := ${lit(opts.to, VARCHAR)}`,
+        ` "seq" := ${lit( opts.seq, VARCHAR)}`,
     ];
     return [
         notice( `RESTORE SEQUENCE OF FIELD ${opts.to} FROM MODEL ${opts.model.model}`),
