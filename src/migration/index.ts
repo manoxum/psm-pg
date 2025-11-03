@@ -4,7 +4,7 @@ import {oid} from "../utils/escape";
 
 
 export function migrate(opts:MigrationOptions ):Promise<PSMMigrationResult>{
-    return new Promise( (resolve, reject) => {
+    return new Promise( (resolve) => {
         const response:PSMMigrationResult = {
             messages: []
         }
@@ -13,6 +13,7 @@ export function migrate(opts:MigrationOptions ):Promise<PSMMigrationResult>{
             if( err ) {
                 response.messages?.push( `Connection failed: ${err.message}` );
                 response.error = err;
+                return resolve(response)
             }
 
             const query = new Query( opts.sql );
@@ -20,13 +21,13 @@ export function migrate(opts:MigrationOptions ):Promise<PSMMigrationResult>{
                 response.error = err;
                 response.messages?.push( `${opts.label} migration failed: ${err.message}` );
                 console.error( `${opts.label} migration failed`, err)
-                client.end( err1 => { });
+                client.end( () => { });
                 resolve( response );
             });
 
-            query.on( "end", result => {
+            query.on( "end", () => {
                 response.success = true;
-                client.end( err1 => { });
+                client.end( () => { });
                 resolve( response );
             });
 
@@ -42,6 +43,8 @@ export function migrate(opts:MigrationOptions ):Promise<PSMMigrationResult>{
         });
     })
 }
+
+
 export function migrated(opts:PSMMigratedOptions ):Promise<PSMMigrated>{
     return new Promise( (resolve, reject) => {
         const response:PSMMigrated = {
@@ -52,6 +55,7 @@ export function migrated(opts:PSMMigratedOptions ):Promise<PSMMigrated>{
             if( err ) {
                 response.messages?.push( `Connection failed: ${err.message}` );
                 response.error = err;
+                return resolve( response );
             }
 
             const sys = oid( opts.sys || "sys" )

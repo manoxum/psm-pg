@@ -1,6 +1,6 @@
 {
   "name": "@prisma-psm/pg",
-  "version": "1.0.17",
+  "version": "1.0.20",
   "description": "Prisma Safe Migration Postgres Driver",
   "main": "src/index.js",
   "scripts": {

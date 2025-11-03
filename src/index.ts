@@ -1,4 +1,4 @@
-import {PSMDriver, ModelOptions, PSMGenerator, PSMMigrationResult} from "@prisma-psm/core";
+import {PSMDriver, ModelOptions, PSMGenerator, PSMMigrationResult, PSMExecute} from "@prisma-psm/core";
 import {parser} from "./parser/parser";
 import {migrate,migrated} from "./migration";
 import {sql} from "./parser/sql";
@@ -19,7 +19,15 @@ const driver :PSMDriver = {
         migrate:() => migrate({ sql: opts.migrate, url: opts.url, label: "NEXT" }),
         test:() => migrate({ sql: opts.check, url: opts.url, label: "TEST" }),
         core:() => migrate({ sql: opts.core, url: opts.url, label: "CORE" }),
-        dump:() => dump( opts )
+        dump:() => dump( opts ),
+        async execute(str: string): Promise<PSMExecute> {
+            const execute = await migrate({ sql: str, url: opts.url, label: "EXECUTE" });
+            return {
+                error: execute.error,
+                messages: execute.messages,
+                success: !execute.error
+            }
+        }
     }),
 
     generator:(opts) => {
