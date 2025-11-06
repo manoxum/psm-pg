@@ -40,10 +40,17 @@ const driver :PSMDriver = {
                 const raw = executeRaw( custom?.resources?.[group])
                 if( !!raw ) sql.push( raw );
             });
-            const n = sql.join(";\n");
 
-            fs.writeFileSync( "dsdsds.sql", n )
-            return migrate({ sql: n, url: opts.url, label: "NEXT" });
+            return migrate({ sql: sql.join(";\n"), url: opts.url, label: "NEXT" });
+        },
+        migrateRaw:( custom ) => {
+            const sql = [];
+            sql.push( opts.migrate );
+            [ "functions", "triggers", "views" ].forEach( group => {
+                const raw = executeRaw( custom?.resources?.[group])
+                if( !!raw ) sql.push( raw );
+            });
+            return sql.join(";\n");
         },
         test:() => migrate({ sql: opts.check, url: opts.url, label: "TEST" }),
         core:() => migrate({ sql: opts.core, url: opts.url, label: "CORE" }),
