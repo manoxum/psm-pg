@@ -15,6 +15,7 @@ export interface ParseModelResult {
         },
         restore_serial:string[],
         clean:string[]
+        lock:string[]
     }
     table: { create:string[], drop:string[], allocate:string[] }
     primary: {  create:string[], drop:string[] }

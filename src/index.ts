@@ -3,7 +3,8 @@ import {parser} from "./parser/parser";
 import {migrate,migrated} from "./migration";
 import {sql} from "./parser/sql";
 import {dump} from "./dump";
-import fs from "fs";
+import * as child from "node:child_process";
+
 
 
 
@@ -33,6 +34,26 @@ const driver :PSMDriver = {
         return migrated( opts );
     },
     migrator: opts =>({
+        restore(backup: string) {
+            return  new Promise( resolve => {
+                console.log(`RESTORE ${backup} TO ${opts.url}`);
+                const psql = child.spawn( "psql", [
+                    "-d", `${opts.url}`,
+                    "-f", backup
+                ]);
+                psql.stdout.on( "data", chunk => {
+                    console.log( `psql>> ${chunk.toString()} `);
+                });
+                psql.stderr.on( "data", chunk => {
+                    console.log( `psql:err>> ${chunk.toString()} `);
+                });
+                psql.on( "exit", code => {
+                    if( code === 0 ) return resolve({result:true})
+                    else resolve({result:false})
+                });
+            });
+
+        },
         migrate:( custom ) => {
             const sql = [];
             sql.push( opts.migrate );

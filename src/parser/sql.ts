@@ -29,8 +29,9 @@ export function sql( opts: SQLOptions, response: ParserResult ) {
 
     //Restore
     parsed.filter( value => !!value.backup?.restore?.data?.length ).forEach( value => {
-        if( [ "migrate", "check" ].includes(opts.mode)) commands.push( ...value.backup?.restore?.data );
-        if( [ "migrate" ].includes(opts.mode)) commands.push( ...value.backup.restore.registry );
+        if( [ "migrate" ].includes(opts.mode)) commands.push( ...value.backup.lock??[] );
+        if( [ "migrate", "check" ].includes(opts.mode)) commands.push( ...value.backup?.restore?.data??[] );
+        if( [ "migrate" ].includes(opts.mode)) commands.push( ...value.backup.restore.registry??[] );
     });
     parsed.filter( value => !!value.backup.restore_serial.length ).forEach( value => {
         if( [ "migrate", "check" ].includes(opts.mode)) commands.push( ...value.backup.restore_serial );

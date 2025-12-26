@@ -53,7 +53,13 @@ export function parser( opts:PostgresParserOptions){
         const modelDDL = modelParser( model, opts );
         const parsed:ParseModelResult = {
             model: model,
-            backup:{ create:[], restore:null, restore_serial:[], clean:[] },
+            backup:{
+                create:[],
+                restore:null,
+                restore_serial:[],
+                lock:[],
+                clean:[]
+            },
             table:{ create:[], drop:[], allocate:[]},
             primary:{ create:[], drop:[] },
             foreign:{ create:[], drop:[] },
@@ -68,7 +74,7 @@ export function parser( opts:PostgresParserOptions){
 
 
         if( backup ){
-
+            parsed.backup.lock = modelDDL.lockTable();
             parsed.backup.restore = modelDDL.restore_backup();
             parsed.backup.restore_serial.push( ...modelDDL.restore_serial());
         }

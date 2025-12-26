@@ -1,12 +1,19 @@
 import {ModelOptions} from "@prisma-psm/core";
 import {PostgresParserOptions} from "../def";
-import {restoreBackupSQL, restoreSerialSQL} from "./engine";
+import {lockTable, restoreBackupSQL, restoreSerialSQL} from "./engine";
 import {fieldParser} from "../table/field";
 
 export function backupParser( model:ModelOptions, parser:PostgresParserOptions ){
     const fieldSQL = model.fields.map(fieldParser);
 
     return {
+
+        lockTable: () => lockTable({
+            source: model.name,
+            model: model,
+            parser: parser,
+        }),
+
         restore_backup: () => restoreBackupSQL({
             source: model.name,
             model: model,

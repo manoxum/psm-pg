@@ -51,6 +51,24 @@ export interface RestoreOptions{
     parser:PostgresParserOptions
 }
 
+export function lockTable(opts:RestoreOptions ){
+    const schema =  oid(opts.model.schema);
+    const source =  oid(opts.source);
+
+    return [
+        notice( `LOCK TABLE FOR SHARE MODE TO MODEL ${opts.model.model}`),
+        `LOCK TABLE ${schema}.${source} IN SHARE MODE;`,
+        notice( `LOCK TABLE FOR SHARE MODE TO MODEL ${opts.model.model} [OK]`),
+    ];
+}
+
+
+export interface RestoreOptions{
+    source:string
+    model:ModelOptions,
+    parser:PostgresParserOptions
+}
+
 export function restoreBackupSQL(opts:RestoreOptions ): {
     data:string[]
     registry:string[]
