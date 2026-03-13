@@ -22,13 +22,8 @@ export function oid(string: string): string {
         throw new Error("Invalid Object identifier name!");
     }
 
-    const isValidIdentifier = IDENTIFIER_REGEX.test(string);
-    const isReservedWord = RESERVED_WORDS.has(string.toLowerCase());
-
-    if (isValidIdentifier && !isReservedWord) {
-        return string;
-    }
-
+    // const isValidIdentifier = IDENTIFIER_REGEX.test(string);
+    // const isReservedWord = RESERVED_WORDS.has(string.toLowerCase());
     return pg.escapeIdentifier(string);
 }
 export function lit(string: string, type?:string ) {
