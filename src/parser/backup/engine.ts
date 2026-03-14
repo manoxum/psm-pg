@@ -51,17 +51,35 @@ export interface RestoreOptions{
     parser:PostgresParserOptions
 }
 
-export function lockTable(opts:RestoreOptions ){
-    const schema =  oid(opts.model.schema);
-    const source =  oid(opts.source);
+export function lockTable(opts: RestoreOptions) {
+    const schema = oid(opts.model.schema);
+    const source = oid(opts.source);
+    const modelName = opts.model.model;
+    const sSchema = lit(opts.model.schema);
+    const sSource = lit(opts.source);
+
+    const sql = `
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 
+                FROM pg_catalog.pg_class c
+                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = ${sSchema}
+                AND c.relname = ${sSource}
+            ) THEN
+                LOCK TABLE ${schema}.${source} IN SHARE MODE;
+                RAISE NOTICE 'LOCK TABLE FOR SHARE MODE TO MODEL ${modelName} [OK]';
+            ELSE
+                RAISE NOTICE 'TABLE ${schema}.${source} NOT FOUND, SKIPPING LOCK';
+            END IF;
+        END $$;`.trim();
 
     return [
-        notice( `LOCK TABLE FOR SHARE MODE TO MODEL ${opts.model.model}`),
-        `LOCK TABLE ${schema}.${source} IN SHARE MODE;`,
-        notice( `LOCK TABLE FOR SHARE MODE TO MODEL ${opts.model.model} [OK]`),
+        notice(`PREPARING LOCK FOR MODEL ${modelName}`),
+        sql
     ];
 }
-
 
 export interface RestoreOptions{
     source:string
