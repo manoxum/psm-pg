@@ -3,7 +3,7 @@ import {oid} from "../../utils/escape";
 import {parseDefault,parseType} from "./engine";
 
 export function fieldParser(opts:FieldOption){
-    const name:string = oid( opts.name );
+    const name:string = oid( opts.dbName );
     const datatype = parseType( opts );
     let defaults:string = "", nonnull:string = "";
     if( opts.isRequired ) nonnull = " not null";

@@ -91,6 +91,20 @@ const driver :PSMDriver = {
         }
     }),
 
+    getCompletions(){
+        return [
+            "SELECT", "INSERT", "UPDATE", "DELETE", "FROM", "WHERE", "JOIN", "INNER", "LEFT", "RIGHT",
+            "GROUP BY", "ORDER BY", "HAVING", "LIMIT", "OFFSET", "UNION", "ALL", "DISTINCT",
+            "CREATE", "ALTER", "DROP", "TABLE", "VIEW", "INDEX", "FUNCTION", "TRIGGER",
+            "BEGIN", "COMMIT", "ROLLBACK", "TRANSACTION", "SAVEPOINT",
+            "AND", "OR", "NOT", "NULL", "TRUE", "FALSE", "IN", "EXISTS", "BETWEEN", "LIKE",
+            "IS", "AS", "ON", "USING", "CASE", "WHEN", "THEN", "ELSE", "END",
+            "PRIMARY KEY", "FOREIGN KEY", "REFERENCES", "CONSTRAINT", "UNIQUE", "CHECK",
+            "DEFAULT", "SERIAL", "BIGINT", "INT", "VARCHAR", "TEXT", "DATE", "TIMESTAMP",
+            "WITH", "RECURSIVE", "RETURNING", "WINDOW", "FILTER", "OVER"
+        ];
+    },
+
     generator:(opts) => {
         let response = parser(opts);
         const generator: PSMGenerator = {
