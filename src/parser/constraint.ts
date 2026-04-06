@@ -3,6 +3,7 @@ import {oid} from "../utils/escape";
 import {ModelOptions} from "@prisma-psm/core";
 import {notice} from "./notice";
 
+export type RelationTriggerEvent =  "Cascade"|"NoAction"|"Restrict"|"SetDefault"|"SetNull"
 export type ConstraintsOptions = {
     model:ModelOptions,
     name:string
@@ -12,7 +13,9 @@ export type ConstraintsOptions = {
     algorithm?:string
     refModelSchema?:string
     refFields?:string[],
-    parser:PostgresParserOptions
+    parser:PostgresParserOptions,
+    relationOnDelete?: RelationTriggerEvent;
+    relationOnUpdate?: RelationTriggerEvent;
 }
 function resolver(parser:PostgresParserOptions, opts:ConstraintsOptions){
     const name = oid( opts.name );
@@ -26,6 +29,13 @@ function resolver(parser:PostgresParserOptions, opts:ConstraintsOptions){
     if(!!opts.refModel) refModel = oid(opts.refModel);
     if(!!opts.refModelSchema) refModelSchema = oid(opts.refModelSchema);
 
+    const EVENT_MAPS :{ [p in RelationTriggerEvent]:string} = {
+        Cascade: "CASCADE",
+        NoAction: "NO ACTION",
+        Restrict: "RESTRICT",
+        SetDefault: "SET DEFAULT",
+        SetNull: "SET NULL",
+    } as const;
 
     return {
         create_primary:()=> ([
@@ -33,11 +43,18 @@ function resolver(parser:PostgresParserOptions, opts:ConstraintsOptions){
             `alter table if exists ${oid(parser.shadow)}.${oid(opts.model.temp)} add constraint ${name} primary key (${fieldsId});`,
             notice( `CREATE PRIMARY KEY ${name} OF MODEL ${opts.model.model} OK!`),
         ]),
-        create_foreign:()=> ([
-            notice( `CREATE FOREIGN KEY ${name} OF MODEL ${ opts.model.model}`),
-            `alter table if exists ${oid(parser.shadow)}.${oid(opts.model.temp)} add constraint ${name} foreign key (${fieldsId}) references ${refModelSchema}.${refModel} ( ${refFields} );`,
-            notice( `CREATE FOREIGN KEY ${name} OF MODEL ${ opts.model.model} OK!`),
-        ]),
+        create_foreign:()=> {
+            let onDelete = "";
+            let onUpdate = "";
+
+            if( opts.relationOnDelete ) onDelete = ` ON DELETE ${EVENT_MAPS[opts.relationOnDelete]}`
+            if( opts.relationOnUpdate ) onDelete = ` ON UPDATE ${EVENT_MAPS[opts.relationOnUpdate]}`
+            return [
+                notice( `CREATE FOREIGN KEY ${name} OF MODEL ${ opts.model.model}`),
+                `alter table if exists ${oid(parser.shadow)}.${oid(opts.model.temp)} add constraint ${name} foreign key (${fieldsId}) references ${refModelSchema}.${refModel} ( ${refFields} )${onDelete}${onUpdate};`,
+                notice( `CREATE FOREIGN KEY ${name} OF MODEL ${ opts.model.model} OK!`),
+            ]
+        },
         create_unique:()=> ([
             notice( `CREATE UNIQUE KEY ${name} OF MODEL ${ opts.model.model}`),
             `alter table if exists ${oid(parser.shadow)}.${oid(opts.model.temp)} add constraint ${name} unique (${fieldsId});`,
@@ -118,7 +135,6 @@ export function constraintsParser( model:ModelOptions, parser:PostgresParserOpti
 
 
         let refModelSchema = parser.shadow;
-
         return resolver( parser, {
             key: "foreign",
             fields: localField,
@@ -128,6 +144,8 @@ export function constraintsParser( model:ModelOptions, parser:PostgresParserOpti
             refModelSchema: refModelSchema,
             parser: parser,
             model: model,
+            relationOnDelete: next.relationOnDelete,
+            relationOnUpdate: next.relationOnUpdate,
         });
     }).filter( value => !!value );
 

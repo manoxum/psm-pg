@@ -5,6 +5,7 @@ import { PostgresParserOptions } from "../def";
 import { notice } from "../notice";
 import { createRevision } from "../sys";
 import { migrationHash } from "../../utils/sha";
+import {parseType} from "../table/engine";
 
 export function createFunctionRestoreSerial(opts: PostgresParserOptions) {
     const sys = oid(opts.sys);
@@ -98,6 +99,8 @@ export function restoreBackupSQL(opts: RestoreOptions): {
         if (!field.hasDefaultValue || field.default === undefined || field.default === null) {
             return 'NULL';
         }
+        const datatype = parseType( field )
+
 
         const def = field.default;
 
@@ -137,7 +140,7 @@ export function restoreBackupSQL(opts: RestoreOptions): {
         }
 
         // Tipos primitivos (string, number, boolean) – tratados como literais
-        if (typeof def === 'string') return def;
+        if (typeof def === 'string') return lit(def, datatype.type);
         if (typeof def === 'number') return String(def);
         if (typeof def === 'boolean') return def ? 'true' : 'false';
 
@@ -164,18 +167,19 @@ export function restoreBackupSQL(opts: RestoreOptions): {
     const fields = opts.model.fields.filter(filter);
 
     // Lista de colunas para o INSERT (na mesma ordem dos campos)
-    const columns = fields.map((f) => ` ${oid(f.name)}`).join(", ");
+    const columns = fields.map((f) => ` ${oid(f.dbName || f.name)}`).join(", ");
 
     // Constrói a lista de expressões SELECT com CASE que verifica existência da chave no JSON original
     const selectExpressions = fields
         .map((field) => {
             const colName = oid(field.dbName || field.name);
-            const colNameLit = lit(field.dbName || field.name);
+        const colNameLit = lit(field.dbName || field.name);
             const defaultValue = getDefaultSQL(field);
+            const datatype = parseType( field );
             return `
                 CASE 
-                    WHEN original_json ? ${colNameLit} THEN s.${colName}
-                    ELSE ${defaultValue}
+                    WHEN original_json ? ${colNameLit} THEN s.${colName}::${datatype.type}
+                    ELSE ${defaultValue||"NULL"}::${datatype.type}
                 END AS ${colName}
             `.trim();
         })
