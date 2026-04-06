@@ -42,7 +42,7 @@ const PRISMA_TYPE_MAP = {
     Oid: "oid",
 }
 
-function formatCast(type) {
+function formatCast(type:string) {
     let cleanType = type.toLowerCase().trim();
 
     // 1. Mapeamento direto de nomes complexos ou pseudotipos
@@ -61,15 +61,15 @@ function formatCast(type) {
     };
 
     // Verifica se existe no mapa (lidando com espaços extras)
-    if (mapping[cleanType]) return mapping[cleanType];
+    if (mapping[cleanType]) return mapping[cleanType]||type;
 
     // 2. Lógica para tipos com (n) como varchar(50) -> mantém o tipo
     // mas se for algo como serial dentro de um array ou algo exótico
     if (cleanType.includes('serial')) {
-        return cleanType.replace('serial', 'int');
+        return cleanType.replace('serial', 'int')||type;
     }
 
-    return cleanType;
+    return cleanType||type;
 }
 
 
