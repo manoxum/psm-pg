@@ -109,10 +109,7 @@ export function parseType ( opts:FieldOption ){
     } else type = opts.type;
 
     if( !type ) type = "text";
-    if( opts.isList ) return {
-        type: `${type}[]`,
-        serial
-    }
+    if( opts.isList )  type = `${type}[]`
 
     return {
         type: type,
