@@ -178,8 +178,8 @@ export function restoreBackupSQL(opts: RestoreOptions): {
             const datatype = parseType( field );
             return `
                 CASE 
-                    WHEN original_json ? ${colNameLit} THEN s.${colName}::${datatype.type}
-                    ELSE ${defaultValue||"NULL"}::${datatype.type}
+                    WHEN original_json ? ${colNameLit} THEN s.${colName}::${datatype.cast}
+                    ELSE ${defaultValue||"NULL"}::${datatype.cast}
                 END AS ${colName}
             `.trim();
         })
