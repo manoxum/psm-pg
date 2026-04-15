@@ -4,6 +4,7 @@ import {migrate,migrated} from "./migration";
 import {sql} from "./parser/sql";
 import {dump} from "./dump";
 import * as child from "node:child_process";
+import * as Path from "node:path";
 
 
 
@@ -17,11 +18,10 @@ function executeRaw( scripts: CustomScript[] ): string{
     if( !!scripts && !Array.isArray( scripts ) ) throw new Error(`dsds ds dsdsdsds ${typeof scripts}`);
     if( !scripts || !Array.isArray(scripts) || !scripts.length ) return null;
     scripts.forEach(value => {
-        const filename:string = value.filename;
+        const filename = Path.basename(value.filename);
         sql.push(`-- =============================== ${value.filename } ========================================` );
-        sql.push(`do $$ begin  raise notice '%', format( 'Iniciando a execução do script ${filename}...'); end; $$;`);
+        sql.push(`do $$ begin  raise notice '%', format( 'Executando script ${filename}'); end; $$;`);
         sql.push( value.raw.endsWith(";")? value.raw: `${value.raw};`)
-        sql.push(`do $$ begin  raise notice '%', format( 'Iniciando a execução do script ${filename}... [OK]'); end; $$;`);
         sql.push("" );
         sql.push("" );
         sql.push("" );

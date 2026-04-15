@@ -1,8 +1,10 @@
 //filename: src/libs/migrate/def.ts
 
-import {ModelOptions, PSMParserOptions} from "@prisma-psm/core";
+import {IndexOptions, ModelOptions, PSMParserOptions} from "@prisma-psm/core";
 
 export interface PostgresParserOptions extends PSMParserOptions{
+    indexMap?: Map<string, IndexOptions[]>;
+    modelMap?: Map<string, ModelOptions>;
 }
 
 export interface ParseModelResult {
@@ -25,6 +27,5 @@ export interface ParseModelResult {
     dependencies:string[]
     dependents:string[]
 }
-
 
 

@@ -54,6 +54,13 @@ export interface RestoreOptions {
     parser: PostgresParserOptions;
 }
 
+type RestorableField = {
+    field: FieldOption;
+    columnName: string;
+    columnLiteral: string;
+    type: ReturnType<typeof parseType>;
+};
+
 export function lockTable(opts: RestoreOptions) {
     const schema = oid(opts.model.schema);
     const source = oid(opts.source);
@@ -90,44 +97,43 @@ export function restoreBackupSQL(opts: RestoreOptions): {
     const shadow = oid(opts.parser.shadow);
     const table = oid(opts.model.name);
     const temp = oid(opts.model.temp);
+    const scalarFields: RestorableField[] = opts.model.fields
+        .filter((field) => field.kind === "scalar")
+        .map((field) => ({
+            field,
+            columnName: oid(field.dbName || field.name),
+            columnLiteral: lit(field.dbName || field.name),
+            type: parseType(field),
+        }));
 
     if (opts.model.psm?.backup?.skip) return null as any;
 
-    // Função auxiliar para extrair a expressão SQL do default de um campo
-    function getDefaultSQL(field: FieldOption): string {
-        // Se o campo não tem default, retorna NULL
+    function getDefaultSQL(item: RestorableField): string {
+        const field = item.field;
         if (!field.hasDefaultValue || field.default === undefined || field.default === null) {
             return 'NULL';
         }
-        const datatype = parseType( field )
+        const def: any = field.default;
 
-
-        const def = field.default;
-
-        // Caso o default seja um objeto com name e args (padrão Prisma)
         if (typeof def === 'object' && 'name' in def) {
             const name = def.name;
             const args = (def as any).args || [];
 
             switch (name) {
                 case 'autoincrement': {
-                    // Usa a sequência da tabela shadow para gerar novos valores
-                    const fullTableName = `${shadow}.${temp}`; // já com aspas
-                    const colNameLit = lit(field.dbName || field.name);
-                    return `nextval(pg_get_serial_sequence(${lit(fullTableName)}, ${colNameLit})::regclass)`;
+                    const fullTableName = `${shadow}.${temp}`;
+                    return `nextval(pg_get_serial_sequence(${lit(fullTableName)}, ${item.columnLiteral})::regclass)`;
                 }
                 case 'now':
                     return 'now()';
                 case 'uuid':
                     return 'gen_random_uuid()';
                 case 'dbgenerated':
-                    // args pode ser uma string ou array; se for array, juntamos
                     if (Array.isArray(args)) {
                         return args.join(' ');
                     }
                     return args || '';
                 default:
-                    // Para outras funções, tenta construir chamada com argumentos
                     const argsSql = args.map((arg: any) => {
                         if (arg === null || arg === undefined) return 'NULL';
                         if (typeof arg === 'string') return arg;
@@ -139,12 +145,11 @@ export function restoreBackupSQL(opts: RestoreOptions): {
             }
         }
 
-        // Tipos primitivos (string, number, boolean) – tratados como literais
-        if (typeof def === 'string') return lit(def, datatype.type);
+        if (typeof def === 'string') return lit(def, item.type.type);
         if (typeof def === 'number') return String(def);
         if (typeof def === 'boolean') return def ? 'true' : 'false';
+        if (Array.isArray(def) && def.length === 0) return `array[]::${item.type.cast}`;
 
-        // Outros objetos (ex: { sql: ... }) – tenta extrair propriedades comuns
         if (typeof def === 'object') {
             const obj = def as any;
             if (obj.sql && typeof obj.sql === 'string') return obj.sql;
@@ -154,38 +159,33 @@ export function restoreBackupSQL(opts: RestoreOptions): {
                 if (str !== '[object Object]') return str;
             }
             if (obj.value !== undefined) {
-                return getDefaultSQL({ default: obj.value } as FieldOption);
+                return getDefaultSQL({
+                    ...item,
+                    field: {
+                        ...field,
+                        default: obj.value,
+                    },
+                });
             }
         }
 
-        // Fallback seguro
         return 'NULL';
     }
 
-    // Filtra campos escalares (incluindo os gerados, para preservar IDs e defaults)
-    const filter = (field: FieldOption) => field.kind === "scalar";
-    const fields = opts.model.fields.filter(filter);
+    const columns = scalarFields.map((item) => ` ${item.columnName}`).join(", ");
 
-    // Lista de colunas para o INSERT (na mesma ordem dos campos)
-    const columns = fields.map((f) => ` ${oid(f.dbName || f.name)}`).join(", ");
-
-    // Constrói a lista de expressões SELECT com CASE que verifica existência da chave no JSON original
-    const selectExpressions = fields
-        .map((field) => {
-            const colName = oid(field.dbName || field.name);
-        const colNameLit = lit(field.dbName || field.name);
-            const defaultValue = getDefaultSQL(field);
-            const datatype = parseType( field );
+    const selectExpressions = scalarFields
+        .map((item) => {
+            const defaultValue = getDefaultSQL(item);
             return `
                 CASE 
-                    WHEN original_json ? ${colNameLit} THEN s.${colName}::${datatype.cast}
-                    ELSE ${defaultValue||"NULL"}::${datatype.cast}
-                END AS ${colName}
+                    WHEN original_json ? ${item.columnLiteral} THEN s.${item.columnName}::${item.type.cast}
+                    ELSE ${defaultValue}::${item.type.cast}
+                END AS ${item.columnName}
             `.trim();
         })
         .join(",\n");
 
-    // DEFAULT_QUERY com CTE que inclui o JSON original e aplica CASE para cada coluna
     const DEFAULT_QUERY = `
         WITH __source AS (
             SELECT
@@ -202,17 +202,17 @@ export function restoreBackupSQL(opts: RestoreOptions): {
             opts.model.name
     )} and t.schemaname = ${lit(opts.model.schema)}`;
     const DEFAULT_WHEN = `true`;
-    const DEFAULT_RESOLVER = fields
-        .map((f) => ` ${oid(f.dbName || f.name)}`)
+    const DEFAULT_RESOLVER = scalarFields
+        .map((item) => ` ${item.columnName}`)
         .join(", ");
 
     let source_exists = DEFAULT_SOURCE_CHECKER;
     let when = DEFAULT_WHEN;
 
-    const revision_resolver = fields
-        .map((field) => {
-            let expression = field.psm?.restore?.expression;
-            if (!expression) expression = ` ${oid(field.dbName || field.name)}`;
+    const revision_resolver = scalarFields
+        .map((item) => {
+            let expression = item.field.psm?.restore?.expression;
+            if (!expression) expression = ` ${item.columnName}`;
             return expression;
         })
         .join(", ");
@@ -240,7 +240,7 @@ export function restoreBackupSQL(opts: RestoreOptions): {
         opts.model.psm?.backup?.rev?.from === "model" &&
         expression
     ) {
-        const model = opts.parser.models.find((m) => m.model === expression);
+        const model = opts.parser.modelMap?.get(expression) || opts.parser.models.find((m) => m.model === expression);
         if (model) {
             revision_query = `select * from ${oid(
                     model.schema || "public"

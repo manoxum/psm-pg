@@ -46,7 +46,7 @@ export function migrate(opts:MigrationOptions ):Promise<PSMMigrationResult>{
 
 
 export function migrated(opts:PSMMigratedOptions ):Promise<PSMMigrated>{
-    return new Promise( (resolve, reject) => {
+    return new Promise((resolve) => {
         const response:PSMMigrated = {
             messages: [],
         }
@@ -59,10 +59,15 @@ export function migrated(opts:PSMMigratedOptions ):Promise<PSMMigrated>{
             }
 
             const sys = oid( opts.sys || "sys" )
-
-            const query = new Query( `
-                select * from ${sys}.migration;
-            `);
+            const values = opts.sids?.length ? [opts.sids] : [];
+            const query = new Query({
+                text: `
+                    select sid, date
+                      from ${sys}.migration
+                     where ($1::text[] is null or sid = any($1::text[]));
+                `,
+                values: values.length ? values : [null],
+            });
 
             query.on( "error", err => {
                 response.error = err;

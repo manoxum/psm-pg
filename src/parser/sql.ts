@@ -4,10 +4,12 @@ export interface SQLOptions {
     mode: "check"|"migrate"|"core"
 }
 export function sql( opts: SQLOptions, response: ParserResult ) {
-    let parsed  = Object.values( response.parsed );
     const commands:string[] = [];
-
-
+    const includeCore = opts.mode === "core";
+    const includeShadow = opts.mode !== "core";
+    const includeMigrate = opts.mode === "migrate";
+    const includeCheck = opts.mode === "check";
+    const parsed = response.parsedList;
 
     commands.push( `/*
       @PSM - Prisma SAFE MIGRATE
@@ -17,71 +19,47 @@ export function sql( opts: SQLOptions, response: ParserResult ) {
       @date ${ new Date().toISOString() }
     */`);
 
-    if( [ "core" ].includes(opts.mode)) commands.push( ...response.core.structure );
-    if( [ "core" ].includes(opts.mode)) commands.push( ...response.core.functions );
-    if( [ "migrate" ].includes( opts.mode)) commands.push( ...response.core.migration );
-    if( [ "migrate", "check" ].includes( opts.mode)) commands.push( ...response.shadow.create );
+    if (includeCore) {
+        commands.push(...response.core.structure);
+        commands.push(...response.core.functions);
+    }
+    if (includeMigrate) commands.push(...response.core.migration);
+    if (includeShadow) commands.push(...response.shadow.create);
 
-    //Create Table
-    parsed.filter( value => !!value.table.create.length ).forEach( value => {
-        if( [ "migrate", "check" ].includes(opts.mode)) commands.push( ...value.table.create );
-    })
+    for (const value of parsed) {
+        if (includeMigrate || includeCheck) {
+            if (value.table.create.length) commands.push(...value.table.create);
 
-    //Restore
-    parsed.filter( value => !!value.backup?.restore?.data?.length ).forEach( value => {
-        if( [ "migrate" ].includes(opts.mode)) commands.push( ...value.backup.lock??[] );
-        if( [ "migrate", "check" ].includes(opts.mode)) commands.push( ...value.backup?.restore?.data??[] );
-        if( [ "migrate" ].includes(opts.mode)) commands.push( ...value.backup.restore.registry??[] );
-    });
-    parsed.filter( value => !!value.backup.restore_serial.length ).forEach( value => {
-        if( [ "migrate", "check" ].includes(opts.mode)) commands.push( ...value.backup.restore_serial );
-    });
+            if (value.backup?.restore?.data?.length) {
+                if (includeMigrate && value.backup.lock.length) commands.push(...value.backup.lock);
+                commands.push(...value.backup.restore.data);
+                if (includeMigrate && value.backup.restore.registry.length) {
+                    commands.push(...value.backup.restore.registry);
+                }
+            }
 
-    //Create indexes
-    parsed.filter( value => !!value.indexes.create.length ).forEach( value => {
-        if( ["migrate", "check" ].includes(opts.mode)) commands.push( ...value.indexes.create );
-    })
+            if (value.backup.restore_serial.length) commands.push(...value.backup.restore_serial);
+            if (value.indexes.create.length) commands.push(...value.indexes.create);
+            if (value.primary.create.length) commands.push(...value.primary.create);
+            if (value.unique.create.length) commands.push(...value.unique.create);
+            if (value.foreign.create.length) commands.push(...value.foreign.create);
+        }
+    }
 
-    //Create constraints
-    parsed.filter( value => !!value.primary.create.length ).forEach( value => {
-        if( ["migrate", "check" ].includes(opts.mode)) commands.push( ...value.primary.create );
-    });
-    parsed.filter( value => !!value.unique.create.length ).forEach( value => {
-        if( ["migrate", "check" ].includes(opts.mode)) commands.push( ...value.unique.create );
-    });
-    parsed.filter( value => !!value.foreign.create.length ).forEach( value => {
-        if( ["migrate", "check" ].includes(opts.mode)) commands.push( ...value.foreign.create );
-    });
+    if (includeMigrate) {
+        commands.push(...response.core.schema);
+        for (const value of parsed) {
+            if (value.foreign.drop.length) commands.push(...value.foreign.drop);
+            if (value.unique.drop.length) commands.push(...value.unique.drop);
+            if (value.primary.drop.length) commands.push(...value.primary.drop);
+            if (value.indexes.drop.length) commands.push(...value.indexes.drop);
+            if (value.table.drop.length) commands.push(...value.table.drop);
+            if (value.table.allocate.length) commands.push(...value.table.allocate);
+            if (value.backup.clean.length) commands.push(...value.backup.clean);
+        }
+    }
 
-    //Schemas
-    if( opts.mode === "migrate" ) commands.push( ...response.core.schema );
-
-    //Drops
-    parsed.filter( value => !!value.foreign.drop.length ).forEach( value => {
-        if( opts.mode === "migrate" ) commands.push( ...value.foreign.drop );
-    });
-
-    parsed.filter( value => !!value.unique.drop.length ).forEach( value => {
-        if( opts.mode === "migrate" ) commands.push( ...value.unique.drop );
-    })
-    parsed.filter( value => !!value.primary.drop.length ).forEach( value => {
-        if( opts.mode === "migrate" ) commands.push( ...value.primary.drop );
-    })
-    parsed.filter( value => !!value.indexes.drop.length ).forEach( value => {
-        if( opts.mode === "migrate" ) commands.push( ...value.indexes.drop );
-    })
-    parsed.filter( value => !!value.table.drop.length ).forEach( value => {
-        if( opts.mode === "migrate" ) commands.push( ...value.table.drop );
-    })
-
-    //Clean backup
-    parsed.filter( value => !!value.table.allocate.length ).forEach( value => {
-        if( opts.mode === "migrate" )  commands.push( ...value.table.allocate );
-    });
-    parsed.filter( value => !!value.backup.clean.length ).forEach( value => {
-        if( opts.mode === "migrate" ) commands.push( ...value.backup.clean );
-    });
-    if( ["migrate", "check" ].includes( opts.mode )) commands.push( ...response.shadow.drop );
+    if (includeShadow) commands.push(...response.shadow.drop);
 
     return commands.join("\n");
 }

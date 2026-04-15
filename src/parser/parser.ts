@@ -12,6 +12,7 @@ import {schema} from "./schama";
 export interface ParserResult {
     options:PostgresParserOptions
     models: string[],
+    parsedList: ParseModelResult[],
     core: {
         schema:string[]
         structure:string[]
@@ -25,11 +26,25 @@ export interface ParserResult {
 }
 
 export function parser( opts:PostgresParserOptions){
-    const schemas = new Set();
+    const indexMap = new Map<string, typeof opts.indexes>();
+    const modelMap = new Map<string, typeof opts.models[number]>();
+    for (const index of opts.indexes) {
+        const current = indexMap.get(index.model);
+        if (current) current.push(index);
+        else indexMap.set(index.model, [index]);
+    }
+    for (const model of opts.models) {
+        modelMap.set(model.model, model);
+    }
+
+    opts.indexMap = indexMap;
+    opts.modelMap = modelMap;
+
     let response:ParserResult = {
         options: opts,
         parsed:{},
         models:[],
+        parsedList: [],
         core: {
             schema: schema( opts ),
             structure: prepareCore(opts),
@@ -42,12 +57,9 @@ export function parser( opts:PostgresParserOptions){
         }
     }
 
-    opts.models.forEach( (model, index) => {
-
-        schemas.add( model.schema )
-
+    opts.models.forEach((model) => {
         if( model.psm?.view ) return;
-        model.indexes = opts.indexes.filter( value => value.model === model.model );
+        model.indexes = indexMap.get(model.model) || [];
 
 
         const modelDDL = modelParser( model, opts );
@@ -97,9 +109,10 @@ export function parser( opts:PostgresParserOptions){
         parsed.dependencies.push( ...modelDDL.depends());
         response.parsed[model.name] = parsed;
         response.models.push( model.name)
+        response.parsedList.push(parsed);
     });
 
-    reverseDependencies( Object.values( response.parsed ));
+    reverseDependencies(response.parsedList);
 
 
     return response;
