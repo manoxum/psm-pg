@@ -1,0 +1,42 @@
+import { IndexOptions, ModelOptions, PSMParserOptions } from "@prisma-psm/core";
+export interface PostgresParserOptions extends PSMParserOptions {
+    indexMap?: Map<string, IndexOptions[]>;
+    modelMap?: Map<string, ModelOptions>;
+}
+export interface ParseModelResult {
+    model: ModelOptions;
+    backup?: {
+        create: string[];
+        restore: {
+            data: string[];
+            registry: string[];
+        };
+        restore_serial: string[];
+        clean: string[];
+        lock: string[];
+    };
+    table: {
+        create: string[];
+        drop: string[];
+        allocate: string[];
+    };
+    primary: {
+        create: string[];
+        drop: string[];
+    };
+    foreign: {
+        create: string[];
+        drop: string[];
+    };
+    unique: {
+        create: string[];
+        drop: string[];
+    };
+    indexes: {
+        create: string[];
+        drop: string[];
+    };
+    dependencies: string[];
+    dependents: string[];
+}
+//# sourceMappingURL=def.d.ts.map

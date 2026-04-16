@@ -5,6 +5,7 @@ export interface SQLOptions {
 }
 export function sql( opts: SQLOptions, response: ParserResult ) {
     const commands:string[] = [];
+    const deferredForeignKeys:string[] = [];
     const includeCore = opts.mode === "core";
     const includeShadow = opts.mode !== "core";
     const includeMigrate = opts.mode === "migrate";
@@ -42,9 +43,11 @@ export function sql( opts: SQLOptions, response: ParserResult ) {
             if (value.indexes.create.length) commands.push(...value.indexes.create);
             if (value.primary.create.length) commands.push(...value.primary.create);
             if (value.unique.create.length) commands.push(...value.unique.create);
-            if (value.foreign.create.length) commands.push(...value.foreign.create);
+            if (value.foreign.create.length) deferredForeignKeys.push(...value.foreign.create);
         }
     }
+
+    if (deferredForeignKeys.length) commands.push(...deferredForeignKeys);
 
     if (includeMigrate) {
         commands.push(...response.core.schema);

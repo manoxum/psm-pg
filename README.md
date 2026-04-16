@@ -1,6 +1,6 @@
 # @prisma-psm/pg
 
-PostgreSQL driver for Prisma Safe Migrate. It generates PostgreSQL-specific SQL, executes validation and migration scripts, reads migration history, creates dumps with `pg_dump`, and restores backups with `psql`.
+PostgreSQL driver for Prisma Safe Migrate.
 
 [English](#english) | [Português](#português)
 
@@ -10,16 +10,16 @@ PostgreSQL driver for Prisma Safe Migrate. It generates PostgreSQL-specific SQL,
 
 `@prisma-psm/pg` is the PostgreSQL runtime and SQL generator for Prisma Safe Migrate.
 
-It is responsible for:
+It is the package that knows how to:
 
-- turning parsed Prisma models into PostgreSQL SQL
-- preparing the migration registry and support structures
-- executing generated SQL against PostgreSQL
-- checking which revisions were already applied
-- creating backups with `pg_dump`
-- restoring backups with `psql`
+- transform parsed Prisma metadata into PostgreSQL SQL
+- build bootstrap, validation, and apply scripts
+- create and restore PostgreSQL backups
+- query the migration registry
+- execute committed revisions
+- restore legacy rows into new table structures during validation and migration workflows
 
-This package is meant to be used with `@prisma-psm/core`.
+This package is meant to be used together with `@prisma-psm/core`.
 
 ### Installation
 
@@ -30,13 +30,11 @@ npm install --save-dev @prisma-psm/core @prisma-psm/pg
 ### Requirements
 
 - PostgreSQL
-- `pg` Node.js driver
+- the `pg` Node.js driver
 - `pg_dump` available in the shell environment
 - `psql` available in the shell environment
 
-### Prisma configuration
-
-Point the PSM generator to the PostgreSQL driver:
+### Prisma setup
 
 ```prisma
 generator psm {
@@ -52,61 +50,85 @@ generator psm {
 
 `@prisma-psm/pg` implements the `PSMDriver` contract from `@prisma-psm/core`.
 
-Key capabilities:
+Main capabilities:
 
-- `generator(opts)`: creates PostgreSQL SQL for `check`, `migrate`, and `core`
-- `migrator(opts)`: executes SQL, restores backups, dumps the database, and executes custom SQL resources
-- `migrated(opts)`: reads applied migration IDs from `<sys>.migration`
-- `prepare(model)`: normalizes model metadata before SQL generation
-- `getCompletions()`: returns SQL keywords for completion-oriented tooling
+- `generator(opts)`: builds PostgreSQL SQL for `core`, `check`, and `migrate`
+- `migrator(opts)`: executes SQL, dumps the database, restores backups, and appends custom SQL payloads
+- `migrated(opts)`: reads applied migration ids from `<sys>.migration`
+- `prepare(model)`: normalizes parsed model metadata before SQL generation
+- `getCompletions()`: exposes SQL-oriented completions for tooling
 
-### SQL generation model
+### SQL model
 
-The driver builds SQL from parsed Prisma metadata and produces three outputs:
+The driver emits three main SQL bundles:
 
-- `core`: bootstrap SQL for internal support structures, including migration tracking
-- `check`: validation SQL used as a safe preflight
-- `migrate`: SQL used to apply the next revision
+- `core`: bootstrap SQL for support objects and migration registry
+- `check`: validation SQL used as a preflight script
+- `migrate`: apply SQL for the next revision
 
-Internally, the PostgreSQL parser organizes models, indexes, dependencies, backup strategy, shadow structures, and final allocation steps.
+Internally, the PostgreSQL parser coordinates:
 
-### Migration behavior
+- table creation
+- temporary shadow allocation
+- dependency ordering
+- backup restore logic
+- index and constraint generation
+- final table allocation
+- migration registry writes
 
-When called through `@prisma-psm/core`, the driver typically runs in this sequence:
+### Execution sequence
+
+When called through `@prisma-psm/core`, the typical sequence is:
 
 1. `core()` to ensure support objects exist
-2. `test()` to execute `migration.next.check.sql`
-3. `dump()` to create a backup
+2. `test()` to execute the generated `check` migration
+3. `dump()` to capture a backup before commit
 4. `migrate()` to apply the final SQL bundle
 
-The driver executes SQL through the `pg` client and reports:
+The driver reports:
 
 - success flag
 - collected messages
 - connection errors
 - SQL execution errors
 
-### Backup and restore behavior
+### Backup and restore
 
-Backup:
+#### Backup
 
-- uses `pg_dump -cOv --if-exists <DATABASE_URL>`
-- streams output into a temporary `backup.sql`
-- returns the dump file path to `@prisma-psm/core`
+The PostgreSQL driver creates backups using:
 
-Restore:
+```bash
+pg_dump -cOv --if-exists <DATABASE_URL>
+```
 
-- uses `psql -d <DATABASE_URL> -f <backup.sql>`
-- is triggered during `psm deploy` for the first unapplied revision that carries a backup
+Behavior:
 
-Operational implication:
+- output is streamed into a temporary `backup.sql`
+- the resulting file path is returned to `@prisma-psm/core`
+- that file is then embedded in committed revision archives
 
-- deployment environments must have both `pg_dump` and `psql` installed
-- credentials and network access must allow CLI-based PostgreSQL tools to run
+#### Restore
 
-### Applied revision lookup
+The PostgreSQL driver restores backups using:
 
-To detect already deployed revisions, the driver queries:
+```bash
+psql -d <DATABASE_URL> -f <backup.sql>
+```
+
+Restore is typically triggered:
+
+- during `psm deploy`, for the first unapplied revision that carries a backup
+- during validation flows that rebuild legacy data into temporary structures
+
+Operational implications:
+
+- deployment environments must expose both `pg_dump` and `psql`
+- network and credentials must allow CLI-based PostgreSQL access
+
+### Migration registry
+
+Applied revisions are read from:
 
 ```sql
 select sid, date
@@ -114,7 +136,7 @@ select sid, date
  where ($1::text[] is null or sid = any($1::text[]));
 ```
 
-That is how `psm deploy` knows which archives are still pending.
+That is how `psm deploy` decides which archives are still pending.
 
 ### Custom SQL resources
 
@@ -124,10 +146,10 @@ The driver can append raw SQL resources collected by `@prisma-psm/core` from:
 - `psm/triggers`
 - `psm/views`
 
-When these resources are present:
+When these resources exist:
 
-- `migrate()` appends them to the generated migration SQL
-- `migrateRaw()` produces the final SQL bundle written into committed revision archives
+- `migrate()` appends them to the generated SQL
+- `migrateRaw()` returns the final SQL bundle stored in revision archives
 - `execute()` can run them independently through `psm execute`
 
 Example structure:
@@ -145,47 +167,101 @@ prisma/
         customer_summary.sql
 ```
 
-### Example workflow
+### Project migration sidecar support
+
+When used with `@prisma-psm/core`, the PostgreSQL driver can consume project migration metadata from:
+
+- `psm.migration.yml`
+- `psm.migration.yaml`
+- `psm.migration.json`
+
+Current runtime support implemented in the PostgreSQL driver:
+
+- `rules.etl.fallback`
+
+This means the driver can use project-specific fallback rules while restoring legacy rows into a newly shaped table.
+
+Real examples:
+
+- old `id varchar` becoming `id int` plus `identifier varchar`
+- old `status varchar` becoming `status int` plus `workflow_status varchar`
+- moving values from `book_id` into `book_identifier`
+
+Current limitation:
+
+- structural rule families such as `rename`, `transform`, `move`, and `rls` can already be authored by the CLI in `psm.migration.yml`, but their SQL materialization is not yet executed by the PostgreSQL driver
+
+### Safer restore behavior
+
+The PostgreSQL driver includes restore protections designed for drift-heavy legacy migrations.
+
+Current safeguards include:
+
+- skipping sequence restoration when the legacy source column no longer exists
+- skipping sequence restoration when the legacy source column is not sequence-compatible
+- sanitizing invalid numeric and boolean legacy values before `jsonb_populate_record`
+- using ETL fallback rules from `psm.migration.yml`
+- delaying foreign key creation until all temporary tables exist
+
+This is important for cases such as:
+
+- legacy string ids like `REQ-2026-006`
+- old text statuses migrated into integer status columns
+- partial schema evolution where source and target types no longer match
+
+### Real-world workflows
+
+#### Workflow 1: normal Prisma schema migration with PostgreSQL validation
 
 ```bash
-# Generate PostgreSQL migration artifacts
 npx prisma generate
-
-# Commit the next revision
 psm commit --label "add reporting view"
-
-# Deploy committed revisions to another environment
 psm deploy
 ```
 
-### Example: custom SQL rollout
+What happens:
+
+- the driver builds PostgreSQL SQL
+- validation is executed against PostgreSQL
+- the committed revision stores migration SQL and a backup
+- deploy replays the same revision archive elsewhere
+
+#### Workflow 2: ship custom SQL with the release
 
 ```bash
-# Execute only function and view resources
 psm execute --groups functions views --label "reporting pack"
 ```
 
-This is useful when you need to version database objects that Prisma does not model directly.
+Useful when:
 
-### Use cases
+- a materialized view refresh function changes
+- reporting views evolve independently from Prisma models
+- audit triggers need patching in the same release window
 
-#### Use case 1: PostgreSQL-first teams with strict deploy control
+#### Workflow 3: legacy restore into normalized tables
 
-Generate once, review SQL, commit a revision archive, and replay that same archive in downstream environments.
+Context:
 
-#### Use case 2: schema changes plus database objects
+- legacy rows still exist in a previous shape
+- the new Prisma schema introduces normalized ids and audit fields
 
-Ship Prisma model changes together with triggers, functions, and views stored under `psm/`.
+Approach:
 
-#### Use case 3: safer operational restore points
+1. declare ETL fallback rules in `psm.migration.yml`
+2. run `npx prisma generate`
+3. let the PostgreSQL driver validate the restore path in the shadow schema
 
-Create dumps before applying committed revisions so production rollouts have a concrete recovery artifact.
+Why this matters:
+
+- the restore path becomes testable before commit
+- project-specific logic stays out of the shared driver code
 
 ### Notes
 
-- The package is PostgreSQL-specific.
-- It depends on the database URL passed by `@prisma-psm/core`.
-- Backup and restore are shell-driven, so local and CI environments must expose PostgreSQL CLI tools.
+- the package is PostgreSQL-specific
+- it depends on the URL passed through `@prisma-psm/core`
+- backup and restore are shell-driven
+- validation behavior depends on real PostgreSQL execution when a URL is configured
 
 ### License
 
@@ -197,14 +273,14 @@ ISC
 
 `@prisma-psm/pg` é o runtime PostgreSQL e o gerador SQL do Prisma Safe Migrate.
 
-Ele é responsável por:
+É o pacote que sabe:
 
-- transformar models Prisma parseados em SQL específico de PostgreSQL
-- preparar o registro de migrações e estruturas de suporte
-- executar SQL gerado contra PostgreSQL
-- verificar quais revisões já foram aplicadas
-- criar backups com `pg_dump`
-- restaurar backups com `psql`
+- transformar metadados Prisma parseados em SQL PostgreSQL
+- montar scripts de bootstrap, validação e aplicação
+- criar e restaurar backups PostgreSQL
+- consultar o registro de migrações
+- executar revisões commitadas
+- restaurar linhas legadas em novas estruturas de tabela durante os fluxos de validação e migração
 
 Este pacote deve ser usado junto com `@prisma-psm/core`.
 
@@ -217,13 +293,11 @@ npm install --save-dev @prisma-psm/core @prisma-psm/pg
 ### Requisitos
 
 - PostgreSQL
-- Driver `pg` para Node.js
+- driver `pg` para Node.js
 - `pg_dump` disponível no ambiente de shell
 - `psql` disponível no ambiente de shell
 
 ### Configuração no Prisma
-
-Aponte o generator PSM para o driver PostgreSQL:
 
 ```prisma
 generator psm {
@@ -237,63 +311,87 @@ generator psm {
 
 ### O que o driver entrega
 
-`@prisma-psm/pg` implementa o contrato `PSMDriver` exportado por `@prisma-psm/core`.
+`@prisma-psm/pg` implementa o contrato `PSMDriver` do `@prisma-psm/core`.
 
 Capacidades principais:
 
-- `generator(opts)`: cria SQL PostgreSQL para `check`, `migrate` e `core`
-- `migrator(opts)`: executa SQL, restaura backups, gera dumps e executa recursos SQL customizados
-- `migrated(opts)`: lê IDs de migração aplicados em `<sys>.migration`
-- `prepare(model)`: normaliza metadados do model antes da geração do SQL
-- `getCompletions()`: retorna palavras-chave SQL para ferramentas com autocompletar
+- `generator(opts)`: monta SQL PostgreSQL para `core`, `check` e `migrate`
+- `migrator(opts)`: executa SQL, gera dump do banco, restaura backups e anexa payloads de SQL customizado
+- `migrated(opts)`: lê ids de migração aplicados em `<sys>.migration`
+- `prepare(model)`: normaliza metadados parseados antes da geração do SQL
+- `getCompletions()`: expõe completions orientados a SQL para tooling
 
-### Modelo de geração SQL
+### Modelo SQL
 
-O driver monta SQL a partir de metadados Prisma parseados e produz três saídas:
+O driver emite três bundles SQL principais:
 
-- `core`: SQL base para estruturas internas e tracking de migração
-- `check`: SQL de validação usado como preflight seguro
-- `migrate`: SQL usado para aplicar a próxima revisão
+- `core`: SQL de bootstrap para objetos de suporte e registro de migração
+- `check`: SQL de validação usado como script de preflight
+- `migrate`: SQL de aplicação da próxima revisão
 
-Internamente, o parser PostgreSQL organiza models, índices, dependências, estratégia de backup, estruturas shadow e passos finais de alocação.
+Internamente, o parser PostgreSQL coordena:
 
-### Comportamento da migração
+- criação de tabelas
+- alocação temporária em shadow schema
+- ordenação por dependências
+- lógica de restore de backup
+- geração de índices e constraints
+- alocação final das tabelas
+- escrita no registro de migração
 
-Quando chamado via `@prisma-psm/core`, o driver normalmente roda nesta sequência:
+### Sequência de execução
+
+Quando chamado via `@prisma-psm/core`, a sequência típica é:
 
 1. `core()` para garantir que os objetos de suporte existam
-2. `test()` para executar `migration.next.check.sql`
-3. `dump()` para criar um backup
+2. `test()` para executar a migração gerada de `check`
+3. `dump()` para capturar um backup antes do commit
 4. `migrate()` para aplicar o bundle SQL final
 
-O driver executa SQL através do cliente `pg` e reporta:
+O driver reporta:
 
 - flag de sucesso
 - mensagens coletadas
 - erros de conexão
 - erros de execução SQL
 
-### Comportamento de backup e restore
+### Backup e restore
 
-Backup:
+#### Backup
 
-- usa `pg_dump -cOv --if-exists <DATABASE_URL>`
-- grava a saída em um `backup.sql` temporário
-- devolve o caminho do dump para `@prisma-psm/core`
+O driver PostgreSQL cria backups usando:
 
-Restore:
+```bash
+pg_dump -cOv --if-exists <DATABASE_URL>
+```
 
-- usa `psql -d <DATABASE_URL> -f <backup.sql>`
-- é acionado durante `psm deploy` na primeira revisão pendente que contém backup
+Comportamento:
 
-Implicação operacional:
+- a saída é gravada em um `backup.sql` temporário
+- o caminho desse arquivo é devolvido ao `@prisma-psm/core`
+- esse arquivo depois é embutido nos arquivos de revisão commitados
 
-- ambientes de deploy precisam ter `pg_dump` e `psql` instalados
-- credenciais e acesso de rede precisam permitir a execução dessas ferramentas
+#### Restore
 
-### Consulta de revisões aplicadas
+O driver PostgreSQL restaura backups usando:
 
-Para detectar revisões já publicadas, o driver consulta:
+```bash
+psql -d <DATABASE_URL> -f <backup.sql>
+```
+
+O restore normalmente é acionado:
+
+- durante `psm deploy`, para a primeira revisão pendente que possui backup
+- durante fluxos de validação que reconstroem dados legados em estruturas temporárias
+
+Implicações operacionais:
+
+- ambientes de deploy precisam expor `pg_dump` e `psql`
+- rede e credenciais precisam permitir acesso PostgreSQL via CLI
+
+### Registro de migrações
+
+As revisões aplicadas são lidas de:
 
 ```sql
 select sid, date
@@ -301,7 +399,7 @@ select sid, date
  where ($1::text[] is null or sid = any($1::text[]));
 ```
 
-É assim que `psm deploy` identifica quais arquivos ainda estão pendentes.
+É assim que `psm deploy` decide quais arquivos ainda estão pendentes.
 
 ### Recursos SQL customizados
 
@@ -313,8 +411,8 @@ O driver consegue anexar recursos SQL crus coletados pelo `@prisma-psm/core` a p
 
 Quando esses recursos existem:
 
-- `migrate()` os anexa ao SQL de migração gerado
-- `migrateRaw()` produz o bundle SQL final escrito dentro dos arquivos de revisão
+- `migrate()` os anexa ao SQL gerado
+- `migrateRaw()` devolve o bundle SQL final gravado nos arquivos de revisão
 - `execute()` pode executá-los isoladamente com `psm execute`
 
 Estrutura de exemplo:
@@ -332,47 +430,101 @@ prisma/
         customer_summary.sql
 ```
 
-### Exemplo de workflow
+### Suporte ao sidecar de migração do projeto
+
+Quando usado com `@prisma-psm/core`, o driver PostgreSQL consegue consumir metadados de migração do projeto a partir de:
+
+- `psm.migration.yml`
+- `psm.migration.yaml`
+- `psm.migration.json`
+
+Suporte atual em runtime no driver PostgreSQL:
+
+- `rules.etl.fallback`
+
+Isso significa que o driver pode usar regras específicas do projeto enquanto restaura linhas legadas para uma tabela com novo formato.
+
+Exemplos reais:
+
+- `id varchar` antigo virando `id int` mais `identifier varchar`
+- `status varchar` antigo virando `status int` mais `workflow_status varchar`
+- mover valores de `book_id` para `book_identifier`
+
+Limitação atual:
+
+- famílias estruturais como `rename`, `transform`, `move` e `rls` já podem ser escritas pela CLI em `psm.migration.yml`, mas sua materialização SQL ainda não é executada pelo driver PostgreSQL
+
+### Comportamento de restore mais seguro
+
+O driver PostgreSQL inclui proteções de restore pensadas para migrações legadas com bastante drift.
+
+Proteções atuais:
+
+- pular restauração de sequência quando a coluna antiga já não existe
+- pular restauração de sequência quando a coluna antiga não é compatível com sequência
+- sanitizar valores numéricos e booleanos inválidos antes de `jsonb_populate_record`
+- usar regras ETL vindas de `psm.migration.yml`
+- adiar criação de foreign keys até que todas as tabelas temporárias existam
+
+Isso é importante para casos como:
+
+- ids legados em string como `REQ-2026-006`
+- status antigos em texto sendo migrados para colunas inteiras
+- evolução parcial de schema em que origem e destino já não têm os mesmos tipos
+
+### Workflows reais
+
+#### Workflow 1: migração normal de schema Prisma com validação em PostgreSQL
 
 ```bash
-# Gerar artefatos de migração PostgreSQL
 npx prisma generate
-
-# Comitar a próxima revisão
 psm commit --label "add reporting view"
-
-# Fazer deploy das revisões commitadas em outro ambiente
 psm deploy
 ```
 
-### Exemplo: rollout de SQL customizado
+O que acontece:
+
+- o driver monta SQL PostgreSQL
+- a validação é executada contra PostgreSQL
+- a revisão commitada armazena SQL de migração e um backup
+- o deploy reaplica o mesmo arquivo de revisão em outro ambiente
+
+#### Workflow 2: publicar SQL customizado junto com a release
 
 ```bash
-# Executar apenas functions e views
 psm execute --groups functions views --label "reporting pack"
 ```
 
-Isso é útil quando você precisa versionar objetos de banco que o Prisma não modela diretamente.
+Útil quando:
 
-### Casos de uso
+- muda uma função de refresh de materialized view
+- views de reporting evoluem independentemente dos models Prisma
+- triggers de auditoria precisam de ajuste na mesma janela de release
 
-#### Caso de uso 1: times PostgreSQL com controle rígido de deploy
+#### Workflow 3: restore legado em tabelas normalizadas
 
-Gere uma vez, revise o SQL, faça commit do arquivo de revisão e replique exatamente esse mesmo arquivo nos ambientes seguintes.
+Contexto:
 
-#### Caso de uso 2: mudança de schema junto com objetos de banco
+- ainda existem linhas antigas em um formato anterior
+- o novo schema Prisma introduz ids normalizados e campos de auditoria
 
-Publique alterações de models Prisma junto com triggers, functions e views guardadas em `psm/`.
+Abordagem:
 
-#### Caso de uso 3: pontos de restauração mais seguros
+1. declarar regras ETL em `psm.migration.yml`
+2. executar `npx prisma generate`
+3. deixar o driver PostgreSQL validar o caminho de restore no shadow schema
 
-Crie dumps antes de aplicar revisões commitadas para que rollouts de produção tenham um artefato concreto de recuperação.
+Por que isso importa:
 
-### Observações
+- o caminho de restore se torna testável antes do commit
+- a lógica específica do projeto continua fora do driver compartilhado
 
-- O pacote é específico para PostgreSQL.
-- Ele depende da URL de banco fornecida pelo `@prisma-psm/core`.
-- Backup e restore são dirigidos por shell, então ambientes locais e de CI precisam expor as ferramentas de CLI do PostgreSQL.
+### Notas
+
+- o pacote é específico para PostgreSQL
+- ele depende da URL passada pelo `@prisma-psm/core`
+- backup e restore são dirigidos por shell
+- o comportamento de validação depende de execução real em PostgreSQL quando existe URL configurada
 
 ### Licença
 
